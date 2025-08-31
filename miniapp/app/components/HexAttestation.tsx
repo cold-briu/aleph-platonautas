@@ -5,17 +5,15 @@ import { Card } from "./Card";
 import { useAccount, useWalletClient } from "wagmi";
 import { viemToEthersSigner } from "../../lib/viemToEthers";
 
+interface HexAttestationProps {
+    hex?: string;
+}
 
-export function HexAttestation() {
-    const [url, setUrl] = useState("");
+export function HexAttestation({ hex: initialHex = "" }: HexAttestationProps) {
+    const [hex, setHex] = useState(initialHex);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState("");
     const [attestationResult, setAttestationResult] = useState("");
-    const [processedData, setProcessedData] = useState({
-        extractedParts: "",
-        combinedString: "",
-        hexBytes32: ""
-    });
 
     const { address } = useAccount();
     const { data: walletClient } = useWalletClient();
@@ -23,42 +21,21 @@ export function HexAttestation() {
     const easContractAddress = "0x4200000000000000000000000000000000000021";
     const schemaUID = "0xdf4c41ea0f6263c72aa385580124f41f2898d3613e86c50519fc3cfd7ff13ad4";
 
-    // Process URL to extract parts and convert to bytes32
-    const processUrl = (inputUrl: string) => {
-        try {
-            // Extract last 2 sections from URL
-            const urlParts = inputUrl.trim().split('/').filter(part => part.length > 0);
-            if (urlParts.length < 2) {
-                throw new Error("URL must have at least 2 path segments");
-            }
+    // Validate hex input
+    const validateHex = (input: string): boolean => {
+        // Check if it's a valid hex string (with or without 0x prefix)
+        const hexPattern = /^(0x)?[0-9a-fA-F]+$/;
+        return hexPattern.test(input);
+    };
 
-            const lastTwoParts = urlParts.slice(-2);
-            const extractedParts = `${lastTwoParts[0]}, ${lastTwoParts[1]}`;
-
-            // Combine parts with space
-            const combinedString = lastTwoParts.join(' ');
-
-            // Convert to hex bytes32 (pad with zeros)
-            const encoder = new TextEncoder();
-            const bytes = encoder.encode(combinedString);
-            const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-            const hexBytes32 = '0x' + hex.padEnd(64, '0'); // 32 bytes = 64 hex characters
-
-            setProcessedData({
-                extractedParts,
-                combinedString,
-                hexBytes32
-            });
-
-            setError("");
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Error processing URL");
-            setProcessedData({
-                extractedParts: "",
-                combinedString: "",
-                hexBytes32: ""
-            });
-        }
+    // Ensure hex is properly formatted as bytes32
+    const formatHexAsBytes32 = (input: string): string => {
+        // Remove 0x prefix if present
+        let cleanHex = input.startsWith('0x') ? input.slice(2) : input;
+        // Pad to 64 characters (32 bytes)
+        cleanHex = cleanHex.padEnd(64, '0');
+        // Add 0x prefix
+        return '0x' + cleanHex;
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -82,21 +59,27 @@ export function HexAttestation() {
             // Connect EAS with ethers signer
             await eas.connect(signer);
 
-            if (!processedData.hexBytes32) {
-                throw new Error("No processed hex data available. Please enter a valid URL first.");
+            if (!hex) {
+                throw new Error("No hex data provided. Please enter a valid hex string.");
             }
+
+            if (!validateHex(hex)) {
+                throw new Error("Invalid hex format. Please enter a valid hex string.");
+            }
+
+            const formattedHex = formatHexAsBytes32(hex);
 
             // Initialize SchemaEncoder with the schema string
             const schemaEncoder = new SchemaEncoder("bytes32 contentHash");
             const encodedData = schemaEncoder.encodeData([
-                { name: "contentHash", value: processedData.hexBytes32, type: "bytes32" }
+                { name: "contentHash", value: formattedHex, type: "bytes32" }
             ]);
 
             const tx = await eas.attest({
                 schema: schemaUID,
                 data: {
                     recipient: "0x0000000000000000000000000000000000000000",
-                    expirationTime: 0,
+                    expirationTime: BigInt(0),
                     revocable: true,
                     data: encodedData,
                 },
@@ -114,72 +97,60 @@ export function HexAttestation() {
     };
 
     return (
-        <Card title="URL to Hex Attestation">
+        <Card title="Hex Attestation">
             <div className="space-y-4">
                 <p className="text-[var(--app-foreground-muted)] text-sm">
-                    Enter a URL to extract the last 2 segments, convert to hex, and submit as an attestation.
+                    Enter a hex string to submit as an attestation.
                 </p>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-2">
                         <label
-                            htmlFor="url"
+                            htmlFor="hex"
                             className="block text-sm font-medium text-[var(--app-foreground)]"
                         >
-                            URL
+                            Hex Value
                         </label>
                         <input
-                            type="url"
-                            id="url"
-                            value={url}
+                            type="text"
+                            id="hex"
+                            value={hex}
                             onChange={(e) => {
-                                setUrl(e.target.value);
-                                if (e.target.value) {
-                                    processUrl(e.target.value);
-                                }
+                                setHex(e.target.value);
+                                setError(""); // Clear error when user types
                             }}
-                            placeholder="https://farcaster.xyz/sandusky/0x78e0db62"
+                            placeholder="0x1234567890abcdef..."
                             required
-                            className="w-full px-3 py-2 bg-[var(--app-card-bg)] border border-[var(--app-card-border)] rounded-lg text-[var(--app-foreground)] placeholder-[var(--app-foreground-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)] focus:border-transparent transition-colors"
+                            className="w-full px-3 py-2 bg-[var(--app-card-bg)] border border-[var(--app-card-border)] rounded-lg text-[var(--app-foreground)] placeholder-[var(--app-foreground-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)] focus:border-transparent transition-colors font-mono"
                         />
                     </div>
 
-                    {/* Processing Steps Display */}
-                    {processedData.extractedParts && (
+                    {/* Hex Preview */}
+                    {hex && validateHex(hex) && (
                         <div className="space-y-3 p-4 bg-[var(--app-gray)] rounded-lg">
-                            <h4 className="text-sm font-medium text-[var(--app-foreground)]">Processing Steps:</h4>
-
-                            <div className="space-y-2 text-sm">
-                                <div>
-                                    <span className="font-medium text-[var(--app-foreground)]">1. Extracted parts:</span>
-                                    <span className="ml-2 text-[var(--app-foreground-muted)]">{processedData.extractedParts}</span>
-                                </div>
-
-                                <div>
-                                    <span className="font-medium text-[var(--app-foreground)]">2. Combined string:</span>
-                                    <span className="ml-2 text-[var(--app-foreground-muted)]">"{processedData.combinedString}"</span>
-                                </div>
-
-                                <div>
-                                    <span className="font-medium text-[var(--app-foreground)]">3. Hex bytes32:</span>
-                                    <span className="ml-2 text-[var(--app-foreground-muted)] font-mono text-xs break-all">{processedData.hexBytes32}</span>
-                                </div>
+                            <h4 className="text-sm font-medium text-[var(--app-foreground)]">Formatted Hex (bytes32):</h4>
+                            <div className="text-sm">
+                                <span className="text-[var(--app-foreground-muted)] font-mono text-xs break-all">
+                                    {formatHexAsBytes32(hex)}
+                                </span>
                             </div>
                         </div>
                     )}
 
                     <Button
                         type="submit"
-                        disabled={isSubmitting || !address || !walletClient || !processedData.hexBytes32}
+                        disabled={isSubmitting || !address || !walletClient || !hex || !validateHex(hex)}
                         className="w-full"
                     >
                         {!address
                             ? "Connect Wallet"
-                            : !processedData.hexBytes32
-                                ? "Enter URL to Process"
-                                : isSubmitting
-                                    ? "Submitting..."
-                                    : "Submit Attestation"
+                            : !hex
+                                ? "Enter Hex Value"
+                                : !validateHex(hex)
+                                    ? "Invalid Hex Format"
+                                    : isSubmitting
+                                        ? "Submitting..."
+                                        : "Submit Attestation"
                         }
                     </Button>
 
